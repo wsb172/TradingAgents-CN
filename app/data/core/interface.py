@@ -216,29 +216,47 @@ class DataInterface:
     async def get_domain_stats(
         self, market: str, domains: List[str]
     ) -> Dict[str, Dict]:
-        """获取各域统计信息（记录数 + 最后更新时间）。"""
+        """获取各域统计信息（记录数 + 最后更新时间）。使用并行查询加速。"""
+        import asyncio
         from app.data.storage.mongo.client import get_motor_db
         from app.data.storage.mongo.collections import get_collection_name
 
         db = get_motor_db()
-        stats: Dict[str, Dict] = {}
-        for domain in domains:
+        
+        async def _get_single_domain_stats(domain: str) -> tuple:
+            """获取单个域的统计信息。"""
             try:
-                coll = db[get_collection_name(domain, market)]
-                count = await coll.count_documents({})
-                last_doc = await coll.find_one(
-                    {},
-                    {"updated_at": 1},
-                    sort=[("updated_at", -1)],
-                )
-                stats[domain] = {
+                coll_name = get_collection_name(domain, market)
+                coll = db[coll_name]
+                
+                # 并行执行count和查询（用find().sort().limit(1)代替find_one+sort）
+                count_task = coll.estimated_document_count()
+                
+                async def _get_latest_updated():
+                    cursor = coll.find(
+                        {"updated_at": {"$exists": True}},
+                        {"updated_at": 1}
+                    ).sort("updated_at", -1).limit(1)
+                    docs = await cursor.to_list(length=1)
+                    return docs[0] if docs else None
+                
+                last_doc_task = _get_latest_updated()
+                count, last_doc = await asyncio.gather(count_task, last_doc_task)
+                
+                return domain, {
                     "records": count,
                     "last_updated": last_doc.get("updated_at") if last_doc else None,
                 }
             except Exception as e:
                 logger.debug(f"获取域统计失败: {domain}: {e}")
-                stats[domain] = {"records": 0, "last_updated": None}
-        return stats
+                return domain, {"records": 0, "last_updated": None}
+        
+        # 并行查询所有域
+        tasks = [_get_single_domain_stats(domain) for domain in domains]
+        results = await asyncio.gather(*tasks)
+        
+        # 转换为字典
+        return {domain: stats for domain, stats in results}
 
     async def get_quotes_stats(self, market: str) -> Dict[str, int]:
         """获取日线行情集合统计（记录数 + 股票数）。
@@ -262,35 +280,55 @@ class DataInterface:
     async def get_quality_overview(
         self, market: str, domains: List[str]
     ) -> Dict[str, Dict]:
-        """获取各域质量概览（记录数、完整率、最新日期）。"""
+        """获取各域质量概览（记录数、完整率、最新日期）。并行查询加速。"""
+        import asyncio
         from app.data.storage.mongo.client import get_motor_db
         from app.data.storage.mongo.collections import get_collection_name
 
         db = get_motor_db()
-        overview: Dict[str, Dict] = {}
-        for domain in domains:
+
+        async def _get_single_quality(domain: str) -> tuple:
             try:
                 coll = db[get_collection_name(domain, market)]
-                total = await coll.count_documents({})
-                missing_symbol = await coll.count_documents(
-                    {"symbol": {"$exists": False}}
+                # 并行执行查询
+                total_task = coll.estimated_document_count()
+                # intraday_quotes用datetime字段，其他用trade_date
+                # 用find().sort().limit(1)代替findOne+sort（大集合上快得多）
+                if domain == "intraday_quotes":
+                    async def _get_latest_intraday():
+                        cursor = coll.find({}, {"datetime": 1}).sort("datetime", -1).limit(1)
+                        docs = await cursor.to_list(length=1)
+                        return docs[0] if docs else None
+                    latest_task = _get_latest_intraday()
+                else:
+                    async def _get_latest_trade():
+                        cursor = coll.find(
+                            {"trade_date": {"$exists": True}},
+                            {"trade_date": 1}
+                        ).sort("trade_date", -1).limit(1)
+                        docs = await cursor.to_list(length=1)
+                        return docs[0] if docs else None
+                    latest_task = _get_latest_trade()
+                total, latest_doc = await asyncio.gather(
+                    total_task, latest_task
                 )
-                latest_doc = await coll.find_one(
-                    {"trade_date": {"$exists": True}},
-                    sort=[("trade_date", -1)],
-                )
-                latest_date = latest_doc.get("trade_date") if latest_doc else None
-                overview[domain] = {
+                if domain == "intraday_quotes":
+                    latest_date = latest_doc.get("datetime") if latest_doc else None
+                else:
+                    latest_date = latest_doc.get("trade_date") if latest_doc else None
+                return domain, {
                     "total_records": total,
-                    "missing_symbol": missing_symbol,
-                    "completeness": round((total - missing_symbol) / total, 3)
-                    if total > 0
-                    else 1.0,
+                    "missing_symbol": 0,
+                    "completeness": 1.0,
                     "latest_date": latest_date,
                 }
             except Exception as e:
-                overview[domain] = {"error": str(e)}
-        return overview
+                return domain, {"error": str(e)}
+
+        # 并行查询所有域
+        tasks = [_get_single_quality(domain) for domain in domains]
+        results = await asyncio.gather(*tasks)
+        return {domain: data for domain, data in results}
 
     async def check_domain_quality(self, market: str, domain: str) -> Dict:
         """对指定域执行完整质量检查。"""

@@ -28,8 +28,8 @@ class TushareConnection:
         self._token: Optional[str] = None
 
     @staticmethod
-    def _get_token_from_database() -> Optional[str]:
-        """从数据库读取 Tushare Token（优先于环境变量）"""
+    def _get_config_from_database() -> tuple[Optional[str], Optional[str]]:
+        """从数据库读取 Tushare Token 和 Endpoint。返回 (token, endpoint)"""
         try:
             from app.core.database import get_mongo_db_sync
             db = get_mongo_db_sync()
@@ -41,11 +41,12 @@ class TushareConnection:
                 for ds_config in config_data["data_source_configs"]:
                     if ds_config.get("type") == "tushare":
                         api_key = ds_config.get("api_key")
-                        if api_key and not api_key.startswith("your_"):
-                            return api_key
+                        endpoint = ds_config.get("endpoint")
+                        token = api_key if api_key and not api_key.startswith("your_") else None
+                        return token, endpoint
         except Exception as e:
-            logger.debug(f"从数据库读取 Token 失败: {e}")
-        return None
+            logger.debug(f"从数据库读取 Tushare 配置失败: {e}")
+        return None, None
 
     def _resolve_env_token(self) -> Optional[str]:
         """读取 A 股 Tushare Token：优先 TUSHARE_CN_TOKEN，回退 TUSHARE_TOKEN。"""
@@ -59,7 +60,7 @@ class TushareConnection:
             logger.error("Tushare 库不可用")
             return False
 
-        db_token = self._get_token_from_database()
+        db_token, db_endpoint = self._get_config_from_database()
         env_token = self._resolve_env_token()
 
         for token, source in [(db_token, "database"), (env_token, "env")]:
@@ -68,6 +69,12 @@ class TushareConnection:
             try:
                 ts.set_token(token)
                 api = ts.pro_api()
+                # 设置自定义API地址（数据库配置优先）
+                endpoint = db_endpoint if source == "database" and db_endpoint else None
+                if endpoint:
+                    from tushare.pro.client import DataApi
+                    DataApi._DataApi__http_url = endpoint
+                    logger.info(f"Tushare 使用自定义API地址: {endpoint}")
                 test = api.stock_basic(list_status="L", limit=1)
                 if test is not None and not test.empty:
                     self.api = api
