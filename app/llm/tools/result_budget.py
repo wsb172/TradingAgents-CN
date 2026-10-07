@@ -68,7 +68,7 @@ def apply_result_budget(
         logger.warning(f"⚠️ [result_budget] {name} 落盘失败，退化为截断: {e}")
         return result[:PREVIEW_CHARS] + f"\n...[结果共 {len(result)} 字符，已截断（落盘失败）]"
 
-    logger.info(f"📦 [result_budget] {name} 结果 {len(result)} 字符超限 {limit}，已落盘: {path}")
+    logger.info(f"📦 [result_budget] {name} 结果 {len(result)} 字符超限，已落盘: {path}")
     return (
         f"{result[:PREVIEW_CHARS]}\n"
         f"...[结果共 {len(result)} 字符，已截断。完整结果已保存：{path}]"

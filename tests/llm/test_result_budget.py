@@ -1,9 +1,9 @@
 """result_budget 单元测试（本地逻辑 + 真实文件 I/O，无需 API）。
 
-覆盖：
-- 未超限：原样返回
-- 超限：预览 + 完整结果路径，全文原子落盘可读回
-- registry.execute 接入预算（大结果 → 预览文本）
+覆盖（对齐 3d39223c「移除 LLM 数据链路全部截断点」后的语义）：
+- 全量直传：任何长度结果原样返回（预算截断已停用，预览式截断对模型
+  等同数据丢失——模型不会主动读落盘文件）
+- registry.execute 直传（大结果不再缩为预览）
 - registry.extend 公共 API（子代理工具子集并入）
 - EventSink.on_progress 进度通道（progress 事件不落库、转发文本）
 """
@@ -12,7 +12,6 @@ from app.llm.events import EventSink
 from app.llm.tools.registry import ToolRegistry
 from app.llm.tools.result_budget import (
     DEFAULT_MAX_RESULT_CHARS,
-    PREVIEW_CHARS,
     apply_result_budget,
 )
 
@@ -22,31 +21,33 @@ class TestApplyResultBudget:
         out = apply_result_budget("my_tool", "short result", task_id="t1")
         assert out == "short result"
 
-    def test_over_limit_persists_and_returns_preview(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)  # runtime 目录落在临时仓库根下（TA_RUNTIME_DIR 未设）
+    def test_over_limit_full_passthrough(self, tmp_path, monkeypatch):
+        """超限结果全量直传：无截断、无「已保存」预览文案（3d39223c 语义）。"""
+        monkeypatch.chdir(tmp_path)
         big = "x" * (DEFAULT_MAX_RESULT_CHARS + 10_000)
         out = apply_result_budget("my_tool", big, task_id="task-预算")
 
-        assert out.startswith("x" * PREVIEW_CHARS)
-        assert "已保存" in out and "完整结果" in out
-        # 从预览中提取落盘路径并读回全文
-        path_line = [ln for ln in out.splitlines() if "已保存" in ln][0]
-        path = path_line.split("：", 1)[1].rstrip("]")
-        content = open(path, encoding="utf-8").read()  # noqa: SIM115
-        assert content == big
+        assert out == big
+        assert "已保存" not in out
+        assert "已截断" not in out
 
-    def test_custom_max_chars(self):
-        out = apply_result_budget("t", "a" * 50, task_id="", max_chars=10)
-        assert "已保存" in out
-
-    def test_unsafe_task_id_sanitized(self, tmp_path, monkeypatch):
+    def test_custom_max_chars_ignored_semantics(self, tmp_path, monkeypatch):
+        """自定义阈值同样不触发截断：停用是全局决策，max_chars 仅保留签名兼容。"""
         monkeypatch.chdir(tmp_path)
-        out = apply_result_budget("t", "a" * (DEFAULT_MAX_RESULT_CHARS + 100), task_id="../evil/id")
-        assert ".." not in out.split("已保存：", 1)[1] or "evil" in out
+        out = apply_result_budget("t", "a" * 50, task_id="", max_chars=10)
+        assert out == "a" * 50
+
+    def test_unsafe_task_id_passthrough(self, tmp_path, monkeypatch):
+        """task_id 不再用于目录隔离（无落盘），任何字符都安全直传。"""
+        monkeypatch.chdir(tmp_path)
+        payload = "a" * (DEFAULT_MAX_RESULT_CHARS + 100)
+        out = apply_result_budget("t", payload, task_id="../evil/id")
+        assert out == payload
 
 
 class TestRegistryBudgetIntegration:
-    async def test_execute_applies_budget(self, tmp_path, monkeypatch):
+    async def test_execute_full_passthrough(self, tmp_path, monkeypatch):
+        """registry.execute 大结果全量直传（预算停用后不再缩为预览）。"""
         monkeypatch.chdir(tmp_path)
         reg = ToolRegistry()
 
@@ -56,8 +57,8 @@ class TestRegistryBudgetIntegration:
             return "y" * (DEFAULT_MAX_RESULT_CHARS + 5_000)
 
         out = await reg.execute("big_tool", {}, task_id="tk1")
-        assert len(out) < 10_000
-        assert "已保存" in out
+        assert len(out) == DEFAULT_MAX_RESULT_CHARS + 5_000
+        assert "已保存" not in out
 
     async def test_execute_small_untouched(self):
         reg = ToolRegistry()

@@ -2,11 +2,13 @@
 增强版队列服务
 基于现有实现，添加并发控制、优先级队列、可见性超时等功能
 """
+# data-access-exempt: 应用层集合（analysis_tasks）取消标记直写属架构豁免，与 analysis_service 同口径
 
 import json
 import time
 import uuid
 import logging
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
 from redis.asyncio import Redis
@@ -358,28 +360,48 @@ class QueueService:
             logger.error(f"处理过期任务失败: {task_id} - {e}")
 
     async def cancel_task(self, task_id: str) -> bool:
-        """取消任务"""
+        """取消任务。
+
+        运行中任务的 Redis 键已被 worker 领取删除，不能因 Redis 查不到就拒绝取消；
+        只要 Mongo 权威记录存在即写入取消标记（引擎侧轮询该状态终止流水线）。
+        """
         try:
             task_data = await self.get_task(task_id)
-            if not task_data:
-                return False
+            if task_data:
+                status = task_data.get("status")
+                user_id = task_data.get("user")
 
-            status = task_data.get("status")
-            user_id = task_data.get("user")
+                if status == "processing":
+                    # 如果正在处理中，从处理集合移除
+                    await self._unmark_task_processing(task_id, user_id)
+                    await self._clear_visibility_timeout(task_id)
+                elif status == "queued":
+                    # 如果在队列中，从队列移除
+                    await self.r.lrem(READY_LIST, 0, task_id)
 
-            if status == "processing":
-                # 如果正在处理中，从处理集合移除
-                await self._unmark_task_processing(task_id, user_id)
-                await self._clear_visibility_timeout(task_id)
-            elif status == "queued":
-                # 如果在队列中，从队列移除
-                await self.r.lrem(READY_LIST, 0, task_id)
+                # 更新任务状态（队列尚有键时同步 Redis，便于队列视图回读）
+                await self.r.hset(TASK_PREFIX + task_id, mapping={
+                    "status": "cancelled",
+                    "cancelled_at": str(int(time.time()))
+                })
 
-            # 更新任务状态
-            await self.r.hset(TASK_PREFIX + task_id, mapping={
-                "status": "cancelled",
-                "cancelled_at": str(int(time.time()))
-            })
+            # Mongo 权威状态同步：worker 领取后 Redis 键已删，取消标记必须落到
+            # analysis_tasks，否则引擎侧看不到取消请求、状态页也永远显示 processing
+            try:
+                from app.core.database import get_mongo_db
+                result = await get_mongo_db().analysis_tasks.update_one(
+                    {"task_id": task_id, "status": {"$nin": ["completed", "cancelled", "failed"]}},
+                    {"$set": {
+                        "status": "cancelled",
+                        "cancel_requested_at": int(time.time()),
+                        "updated_at": datetime.now(timezone.utc),
+                    }},
+                )
+                if not task_data and result.matched_count == 0:
+                    logger.warning(f"取消目标不存在（Redis 与 Mongo 均未命中）: {task_id}")
+                    return False
+            except Exception as mongo_err:
+                logger.warning(f"任务取消标记写回 Mongo 失败（Redis 侧已取消）: {task_id} - {mongo_err}")
 
             logger.info(f"任务已取消: {task_id}")
             return True

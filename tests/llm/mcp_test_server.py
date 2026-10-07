@@ -14,11 +14,13 @@ _NUM = {"type": "number"}
 
 
 def _tool(name: str, desc: str, props: dict, required: list) -> types.Tool:
-    return types.Tool(
-        name=name,
-        description=desc,
-        input_schema={"type": "object", "properties": props, "required": required},
-    )
+    # mcp SDK 新版 Tool 字段名为 inputSchema（驼峰）；旧版为 input_schema。
+    # 两种运行时都要能起服务，先试驼峰再退蛇形。
+    schema = {"type": "object", "properties": props, "required": required}
+    try:
+        return types.Tool(name=name, description=desc, inputSchema=schema)
+    except Exception:
+        return types.Tool(name=name, description=desc, input_schema=schema)
 
 
 TOOLS = [
@@ -49,7 +51,31 @@ async def on_call_tool(ctx, params: types.CallToolRequestParams) -> types.CallTo
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
 
 
-server = Server("calc", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+server = None
+try:
+    server = Server("calc", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+except TypeError:
+    # mcp SDK 1.x lowlevel Server 无关键字 handler：走装饰器注册
+    server = Server("calc")
+
+    @server.list_tools()
+    async def _list_tools() -> types.ListToolsResult:
+        return types.ListToolsResult(tools=TOOLS)
+
+    @server.call_tool()
+    async def _call_tool(name: str, args: dict) -> types.CallToolResult:
+        try:
+            if name == "add":
+                text = str(float(args["a"]) + float(args["b"]))
+            elif name == "multiply":
+                text = str(float(args["a"]) * float(args["b"]))
+            else:
+                raise ValueError(f"预期失败: {args.get('message', '')}")
+        except ValueError as e:
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text=str(e))], is_error=True
+            )
+        return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
 
 
 async def main() -> None:

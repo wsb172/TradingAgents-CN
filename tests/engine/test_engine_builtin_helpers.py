@@ -41,9 +41,12 @@ class TestFormatResultDictList:
         assert "|" in result
 
     def test_truncates_long_list(self):
+        """max_rows 语义已停用（3d39223c 全量直传）：长列表完整输出、无「剩余」截断标记。"""
         data = [{"id": i} for i in range(3000)]
         result = format_result(data, "长列表", max_rows=100)
-        assert "剩余" in result
+        assert "剩余" not in result
+        assert "| 2999 |" in result  # 末行仍在 → 未截断
+        assert "| 0 |" in result
 
 
 class TestFormatResultOther:

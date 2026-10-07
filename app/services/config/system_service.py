@@ -45,17 +45,21 @@ class SystemService:
     """系统配置管理与导入导出"""
 
     def __init__(self, db_manager=None):
+        # db 字段保留仅为属性兼容；连接获取见 _get_db（不再缓存）
         self.db = None
         self.db_manager = db_manager
 
     async def _get_db(self):
-        """获取数据库连接"""
-        if self.db is None:
-            if self.db_manager and self.db_manager.mongo_db is not None:
-                self.db = self.db_manager.mongo_db
-            else:
-                self.db = get_mongo_db()
-        return self.db
+        """获取数据库连接。
+
+        不缓存 self.db：进程内 motor client 会被重置（测试 fixture 的
+        real_mongo_db/sim_db 切换、事件循环更替），缓存旧引用会拿到
+        "Event loop is closed" 的死连接并让 get_system_config 永远回落
+        默认值。每次现取 get_mongo_db()（其内部本身有单例）。
+        """
+        if self.db_manager and self.db_manager.mongo_db is not None:
+            return self.db_manager.mongo_db
+        return get_mongo_db()
 
     # ==================== 系统配置管理 ====================
 

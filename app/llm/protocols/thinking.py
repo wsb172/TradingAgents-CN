@@ -25,6 +25,8 @@
 
 方言判定：provider 名优先（收敛候选；框架方言不参与模型名兜底，
 否则 match-all 会吞掉所有未知模型），模型名模式作能力门控（不匹配不注入）；
+provider 命中但模型不匹配时继续模型名兜底——覆盖 OpenAI 兼容网关托管
+第三方思考模型（如 Qwen3.8-27B）的场景；
 聚合渠道（302.AI/OpenRouter 等）的模型名保留原厂命名（如 "openai/o3"），
 取 "/" 后段参与模式匹配。
 """
@@ -149,6 +151,21 @@ def _build_ollama(effort: str, model: str, budget: Optional[int]) -> Dict[str, A
     return {"reasoning_effort": _OLLAMA_EFFORT[effort]}
 
 
+def _build_qwen38(effort: str, model: str, budget: Optional[int]) -> Dict[str, Any]:
+    """Qwen3.8（OpenAI 兼容网关托管）：ctk 参数进模型模板。
+
+    与 vLLM 同形状（vLLM + Qwen3.8-27B 实测口径）：模板只收 low/medium/xhigh，
+    off 走 enable_thinking=false。thinking_token_budget 属 vLLM 顶层采样参数，
+    网关透传无保证，不注入。
+    """
+    ctk: Dict[str, Any] = {}
+    if effort == "off":
+        ctk["enable_thinking"] = False
+    else:
+        ctk["reasoning_effort"] = _ctk_effort_value(effort, model)
+    return {"extra_body": {"chat_template_kwargs": ctk}}
+
+
 _DIALECTS: Tuple[_Dialect, ...] = (
     _Dialect(
         name="openai",
@@ -181,6 +198,14 @@ _DIALECTS: Tuple[_Dialect, ...] = (
         model_pattern=None,
         builder=_build_ollama,
     ),
+    # Qwen3.8 云端方言：OpenAI 兼容网关（provider 名常见为 openai）托管 Qwen3.8 时，
+    # openai 方言模型门控失败后由本条按模型名兜底命中——否则档位永远不注入
+    _Dialect(
+        name="qwen38",
+        providers=(),
+        model_pattern=_QWEN38_PATTERN,
+        builder=_build_qwen38,
+    ),
 )
 
 
@@ -192,8 +217,10 @@ def _lookup_model(model: str) -> str:
 def detect_dialect(provider: Optional[str], model: str) -> Optional[_Dialect]:
     """方言判定：provider 名收敛候选，模型模式作能力门控；无匹配返回 None。
 
-    provider 显式命中后不再落入模型名兜底——避免自托管 Qwen（provider=vllm 等）
-    误命中已删除的百炼方言这类错配。
+    provider 显式命中但模型门控失败（如自定义 OpenAI 兼容网关托管 Qwen3.8，
+    provider 名恰为 "openai"）时，继续走模型名兜底而非直接放弃——否则网关
+    托管的思考模型永远匹配不到方言，档位配置形同虚设。
+    provider 兜底仍只允许云端方言：框架方言 match-all 会误吞一切未知模型。
     """
     lookup = _lookup_model(model)
     prov = (provider or "").strip().lower()
@@ -201,7 +228,7 @@ def detect_dialect(provider: Optional[str], model: str) -> Optional[_Dialect]:
         if prov and prov in dialect.providers:
             if dialect.model_pattern is None or dialect.model_pattern.search(lookup):
                 return dialect
-            return None
+            break  # provider 命中但模型不匹配 → 落入模型名兜底（不再直接 return None）
     # 聚合渠道/自定义厂家：纯模型名模式识别（框架方言 match-all，不参与兜底）
     for dialect in _DIALECTS:
         if dialect.model_pattern is not None and dialect.model_pattern.search(lookup):

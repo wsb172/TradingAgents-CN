@@ -82,6 +82,13 @@ class TestPipelineOrderingRealLLM:
 
     def test_event_order(self):
         pytest.importorskip("app.llm.providers")
+        import os
+
+        # ai 标记的测试：真实 LLM 端到端。无凭据（容器外跑/无 .env key）时
+        # get_engine_clients 只会拿到占位客户端，全部节点 401 失败——
+        # 这种环境直接 skip，不算回归。
+        if not (os.getenv("TUSHARE_TOKEN") is not None or _has_engine_creds()):
+            pytest.skip("无 LLM 凭据（ai 层测试需真实 API key）")
         from app.llm.providers import get_engine_clients
 
         import asyncio
@@ -114,3 +121,19 @@ class TestPipelineOrderingRealLLM:
         assert risk["current_round_index"] == 2
         assert state["trader_investment_plan"]
         assert "node_timings" in state
+
+
+def _has_engine_creds() -> bool:
+    """宿主侧检查 DB 模型配置是否带可用 api_key（无 DB 连接时按无凭据处理）。"""
+    try:
+        from app.services.config.system_service import SystemService
+
+        import asyncio
+
+        async def _peek():
+            cfgs = await SystemService.get_llm_configs()
+            return [c for c in (cfgs or []) if c.get("api_key")]
+
+        return bool(asyncio.run(_peek()))
+    except Exception:
+        return False

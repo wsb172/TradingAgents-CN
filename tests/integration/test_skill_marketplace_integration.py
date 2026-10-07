@@ -130,8 +130,12 @@ class TestMarketplaceReadOnly:
 @pytest.mark.skipif(not _REACHABLE, reason=_SKIP_REASON)
 class TestMarketplaceInstall:
     def test_install_small_skill_and_cleanup(self, client):
-        """真实安装一个市场 skill，校验落盘与来源标记，结束后清理"""
-        result = asyncio.run(install_from_marketplace("gifgrep"))
+        """真实安装一个市场 skill，校验落盘与来源标记，结束后清理
+
+        引用必须 owner 限定：裸 slug "gifgrep" 上游已出现多位同名发布者
+        （steipete / azizbrownint），会触发 AmbiguousSkillSlug 歧义失败。
+        """
+        result = asyncio.run(install_from_marketplace("steipete/gifgrep"))
         try:
             assert result["success"], result
             installed = Path(result["installed_path"])

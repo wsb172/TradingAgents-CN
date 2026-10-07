@@ -24,7 +24,6 @@ def format_result(data: Any, title: str, max_rows: int = 2000) -> str:
     # Assuming data is a list of dicts or a pandas DataFrame (converted to list of dicts)
     if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
         # 列表全量输出，不按行数截断：隐藏的行对 LLM 不可见，会丢失数据
-        original_len = len(data)
 
         # Create markdown table
         headers = list(data[0].keys())

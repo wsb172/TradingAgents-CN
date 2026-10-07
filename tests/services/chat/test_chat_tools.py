@@ -13,12 +13,25 @@ from app.data.storage.mongo.repositories.factor_scores_repo import FactorScoresR
 from app.services.chat import tools as chat_tools
 
 SYMBOL = "TESTC001"
-DATES = [f"2026-09-{d:02d}" for d in range(1, 11)]
+
+
+def _seed_dates(n: int = 10) -> list:
+    """近 n 个自然日窗口（含今天）生成升序日期串。
+
+    query_stock_quotes 的回看窗口 = now - days*2 自然日；种子必须落在窗口内，
+    固定写死日期会随日历推移失效（曾在 2026-10-08 因种子停在 09-10 全被窗口排除）。
+    """
+    from app.utils.timezone import now_tz
+    from datetime import timedelta
+    today = now_tz().date()
+    return [(today - timedelta(days=n - 1 - i)).strftime("%Y-%m-%d") for i in range(n)]
 
 
 @pytest.fixture
 async def chat_tool_env(real_mongo_db):
     """种 1 只股的基础信息/因子/日线/指标；构造真实 DataInterface。"""
+    dates = _seed_dates(10)
+    latest = dates[-1]  # 因子/指标锚定种子窗口最后一日
     db = get_motor_db()
     await db[get_collection_name("basic_info", "CN")].update_one(
         {"symbol": SYMBOL},
@@ -27,7 +40,7 @@ async def chat_tool_env(real_mongo_db):
         upsert=True,
     )
     await FactorScoresRepo().upsert_many([{
-        "symbol": SYMBOL, "trade_date": "2026-09-10", "name": "测试股甲", "industry": "银行",
+        "symbol": SYMBOL, "trade_date": latest, "name": "测试股甲", "industry": "银行",
         "bias_ma20": 3.0, "turnover_amp": 2.0, "ret_5d": 5.0,
         "score_short_term": 90.0, "score_balanced": 75.0, "score_value": 40.0,
     }], market="CN")
@@ -36,10 +49,10 @@ async def chat_tool_env(real_mongo_db):
     await q_coll.insert_many([{
         "symbol": SYMBOL, "trade_date": d, "period": "daily", "close": 10.0 + i * 0.1,
         "volume": 1_000_000, "amount": 12_000_000.0, "pct_chg": 1.0, "data_source": "test",
-    } for i, d in enumerate(DATES)])
+    } for i, d in enumerate(dates)])
     await db[get_collection_name("daily_indicators", "CN")].update_one(
-        {"symbol": SYMBOL, "trade_date": "2026-09-10"},
-        {"$set": {"symbol": SYMBOL, "trade_date": "2026-09-10",
+        {"symbol": SYMBOL, "trade_date": latest},
+        {"$set": {"symbol": SYMBOL, "trade_date": latest,
                   "pe_ttm": 12.5, "pb": 1.4, "dividend_yield": 3.2, "data_source": "test"}},
         upsert=True,
     )
@@ -64,7 +77,6 @@ async def test_search_stock_hit_and_miss(chat_tool_env):
 
 async def test_query_stock_factors(chat_tool_env):
     text = await chat_tools.query_stock_factors(SYMBOL)
-    assert "2026-09-10" in text
     assert "score_short_term=90" in text
     assert "bias_ma20=3" in text
 
@@ -89,10 +101,11 @@ async def test_query_daily_recommendations_always_text(chat_tool_env):
 
 
 async def test_query_stock_quotes(chat_tool_env):
+    dates = _seed_dates(10)
     text = await chat_tools.query_stock_quotes(SYMBOL, days=10)
     assert "区间涨跌幅" in text
     assert "pe_ttm=12.5" in text
-    assert "2026-09-01" in text and "2026-09-10" in text
+    assert dates[0] in text and dates[-1] in text
 
 
 async def test_chat_tools_defs_shape():

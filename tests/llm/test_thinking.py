@@ -49,9 +49,14 @@ class TestDetectDialect:
         assert detect_dialect("vllm", "openai/o3").name == "vllm"
 
     def test_provider_hit_but_model_not_thinking(self):
-        # 云端方言 provider 命中但模型不匹配 → None（不注入）
+        # 云端方言 provider 命中但模型不匹配 → 尝试模型名兜底，仍无匹配才 None（不注入）
         assert detect_dialect("openai", "gpt-4o") is None
         assert detect_dialect("deepseek", "deepseek-chat") is None
+
+    def test_provider_hit_gated_model_falls_through(self):
+        # OpenAI 兼容网关托管 Qwen3.8：provider 命中 openai 但模型门控失败，
+        # 落入模型名兜底命中 qwen38 云端方言 → 档位得以注入（网关托管思考模型场景）
+        assert detect_dialect("openai", "Qwen3.8-27B").name == "qwen38"
 
     def test_model_pattern_gates_injection(self):
         # 自定义厂家名（聚合网关）：provider 不命中，按模型名兜底识别
@@ -63,7 +68,10 @@ class TestDetectDialect:
         # match-all 的框架方言若参与兜底会吞掉一切未知模型
         assert detect_dialect(None, "llama-3-70b") is None
         assert detect_dialect(None, "") is None
-        assert detect_dialect("custom", "Qwen3.8-27B") is None
+        # Qwen3.8 是按模型名门控的云端方言，参与兜底是设计行为（网关托管场景）
+        assert detect_dialect("custom", "Qwen3.8-27B").name == "qwen38"
+        # 未知模型仍不注入
+        assert detect_dialect("custom", "llama-3-70b") is None
 
     def test_unknown_returns_none(self):
         assert detect_dialect("zhipu", "glm-5.3") is None  # 方言已移除
@@ -278,14 +286,17 @@ class TestCanonicalCompleteness:
             "vllm": "Qwen3.8-27B",
             "llamacpp": "gpt-oss-120b",
             "ollama": "qwen3:8b",
+            # qwen38 无 provider 名（模型名兜底专用），用任意未命中 provider 探测
+            "qwen38": "Qwen3.8-27B",
         }
         for dialect in _DIALECTS:
             model = probe_models[dialect.name]
+            provider = dialect.providers[0] if dialect.providers else "custom_gw"
             for effort in self.LEVELS:
-                result = build_openai_thinking_params(dialect.providers[0], model, effort)
+                result = build_openai_thinking_params(provider, model, effort)
                 assert result != {}, f"{dialect.name} 方言 {effort} 档意外不注入"
             # off 也必须可调用（返回 {} 或关闭参数，不得异常）
-            build_openai_thinking_params(dialect.providers[0], model, "off")
+            build_openai_thinking_params(provider, model, "off")
 
     def test_off_is_only_level_not_in_tables(self):
         # off 走各 builder 特判（能否关闭是模型能力，不是档位映射）

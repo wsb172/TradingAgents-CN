@@ -42,7 +42,7 @@ class FavoritesService:
             return "创业板"
         elif c.startswith("68"):
             return "科创板"
-        elif c.startswith(("4", "8")):
+        elif c.startswith(("4", "8", "92")):
             return "北交所"
         return "主板"
 

@@ -703,9 +703,16 @@ async def cancel_task(
 ):
     """取消任务"""
     try:
-        # 验证任务所有权
+        # 验证任务所有权：队列(Redis qa:task:*) → analysis_tasks(Mongo) 逐级回退。
+        # 运行中任务被 worker 领取后 Redis 键即删除，仅查队列会恒 404（取消功能失效）。
         task = await svc.get_task(task_id)
-        if not task or task.get("user") != user["id"]:
+        if not task:
+            from app.services.analysis_service import get_analysis_service
+            task = await get_analysis_service().get_task_with_status_fallback(
+                task_id, user_id=user["id"]
+            )
+        owner = (task or {}).get("user") or (task or {}).get("user_id")
+        if not task or (owner is not None and owner != user["id"]):
             raise HTTPException(status_code=404, detail="任务不存在")
 
         success = await svc.cancel_task(task_id)
