@@ -304,6 +304,41 @@ async def _init_scheduler(logger):
 
     set_scheduler_instance(apscheduler)
     logger.info("调度器服务已初始化（统一调度引擎）")
+
+    # 数据新鲜度巡检（catchup 兜底）：启动延迟巡检一次 + 周期巡检。
+    # cron 的 misfire 过期即丢弃，停机期间错过的交易日由巡检发现落后并补数。
+    if getattr(settings, "DATA_FRESHNESS_PATROL_ENABLED", True):
+        try:
+            from app.core.task_registry import task_registry
+            from app.data.scheduler.freshness_patrol import (
+                patrol_loop,
+                startup_patrol,
+            )
+
+            task_registry.register(
+                startup_patrol(delay_seconds=120),
+                name="data_freshness_startup_patrol",
+                critical=False,
+            )
+            task_registry.register(
+                patrol_loop(),
+                name="data_freshness_patrol",
+                critical=False,
+            )
+            logger.info("✅ 数据新鲜度巡检已启动（启动兜底 + 周期巡检）")
+        except Exception as e:
+            logger.warning(f"⚠️ 数据新鲜度巡检启动失败（不阻塞应用）: {e}", exc_info=True)
+
+    # 按需刷新队列消费器：打通 reader(stale) → Redis 队列 → 按需增量刷新闭环。
+    # 此前队列只有生产者（点开 K 线图触发），消费侧缺失导致刷新消息永不执行。
+    try:
+        from app.data.scheduler.refresh_consumer import start_refresh_consumer
+
+        start_refresh_consumer()
+        logger.info("✅ 按需刷新队列消费器已启动")
+    except Exception as e:
+        logger.warning(f"⚠️ 刷新队列消费器启动失败（不阻塞应用）: {e}", exc_info=True)
+
     return apscheduler
 
 

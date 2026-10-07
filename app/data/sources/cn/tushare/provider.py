@@ -43,7 +43,8 @@ class TushareCNProvider(BaseProvider):
     async def get_stock_list(self, **kwargs) -> pd.DataFrame:
         from .api.stock_basic import fetch_stock_list
 
-        return await fetch_stock_list(self._get_conn())
+        # market=CN 显式传递：fetch_stock_list 依赖它决定是否追加北交所列表
+        return await fetch_stock_list(self._get_conn(), market=kwargs.get("market", "CN"))
 
     async def get_trade_calendar(
         self,
@@ -65,6 +66,13 @@ class TushareCNProvider(BaseProvider):
 
         ts_code = self._to_ts_code(symbol)
         return await fetch_daily_quotes(self._get_conn(), ts_code, start_date, end_date)
+
+    async def get_daily_quotes_batch(
+        self, trade_date: str, **kwargs
+    ) -> pd.DataFrame:
+        from .api.daily_quotes import fetch_daily_quotes_batch
+
+        return await fetch_daily_quotes_batch(self._get_conn(), trade_date)
 
     async def get_daily_indicators(
         self, symbol: str, start_date: str, end_date: str, **kwargs
@@ -215,6 +223,8 @@ class TushareCNProvider(BaseProvider):
             return f"{code}.SH"
         elif code.startswith(("0", "3", "20")):
             return f"{code}.SZ"
-        elif code.startswith(("4", "8")):
+        elif code.startswith(("4", "8", "92")):
+            # 北交所：老代码 43x/83x/87x + 2024-11 起启用的 920 段。
+            # 920xxx 落到 .SZ 会查询无数据，导致同步尾段三源全部失败。
             return f"{code}.BJ"
         return f"{code}.SZ"

@@ -218,7 +218,8 @@ class FallbackRouter:
             status, records, verrs = await self.fetch_source(
                 market, domain, source_name,
                 lambda p: self._fetch_raw(
-                    p, domain, symbol, start_date, end_date, default_exchange
+                    p, domain, symbol, start_date, end_date, default_exchange,
+                    market=market,
                 ),
             )
             if status == "failed":
@@ -420,11 +421,12 @@ class FallbackRouter:
         start: str,
         end: str,
         exchange: str = "SSE",
+        market: str = "",
     ):
         method_map = {
-            "basic_info": lambda: provider.get_stock_list(),
+            "basic_info": lambda: provider.get_stock_list(market=market),
             "trade_calendar": lambda: provider.get_trade_calendar(exchange, start, end),
-            "daily_quotes": lambda: provider.get_daily_quotes(symbol, start, end),
+            "daily_quotes": lambda: self._fetch_daily_quotes(provider, symbol, start, end),
             "daily_indicators": lambda: self._fetch_daily_indicators(provider, symbol, start, end),
             "financial_data": lambda: self._fetch_financial_batch(provider, symbol, start, end),
             "adj_factors": lambda: provider.get_adj_factors(symbol, start, end),
@@ -444,6 +446,66 @@ class FallbackRouter:
 
     # 批量模式不支持时返回此 sentinel，调用链应跳过而非记录失败
     _BATCH_NOT_SUPPORTED = object()
+
+    async def _fetch_daily_quotes(self, provider, symbol: str, start: str, end: str):
+        """获取日线行情：per-symbol 模式或按交易日批量模式。
+
+        批量模式拉「最近 6 个交易日」（交易日历优先，库内行情日期兜底，
+        两者并集）：逐 symbol 对全市场在 500 次/分钟配额下要 11+ 分钟且
+        反复触发熔断；按 trade_date 分页批量只需 2 页/日。单日无数据
+        （非交易日/未发布）跳过不阻塞其他日。
+        """
+        if symbol != "__all__":
+            return await provider.get_daily_quotes(symbol, start, end)
+        base_method = BaseProvider.get_daily_quotes_batch
+        if type(provider).get_daily_quotes_batch is base_method:
+            return self._BATCH_NOT_SUPPORTED
+
+        from app.data.sources.base.exceptions import DataNotFoundError
+
+        dates = await self._recent_sync_trade_dates(provider.market, 6)
+        if not dates:
+            return self._BATCH_NOT_SUPPORTED  # 无可用交易日，skip 不误记熔断
+
+        import pandas as pd
+
+        frames = []
+        for d in dates:
+            try:
+                df = await provider.get_daily_quotes_batch(d)
+            except DataNotFoundError:
+                logger.debug(f"{provider.name} daily_quotes {d} 无数据，跳过")
+                continue
+            if df is not None and not df.empty:
+                frames.append(df)
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
+    async def _recent_sync_trade_dates(self, market: str, n: int) -> List[str]:
+        """最近 n 个交易日（降序）：交易日历 ∪ 库内行情日期。
+
+        交易日历覆盖「库还没追上的新日期」（catchup 场景：停机多日后
+        重启，库内 distinct 只有旧日期，靠日历才能发现要补的新交易日）；
+        日历缺失时退回库内 distinct（原语义）。
+        """
+        dates: set = set(await self._recent_quote_trade_dates(market, n))
+        try:
+            from app.data.core.market import get_latest_trade_day
+            from datetime import timedelta
+
+            latest = await get_latest_trade_day(market)
+            if latest is not None:
+                cursor = latest
+                # 向前收集 n 个日历开市日（与 distinct 并集后截取前 n）
+                while len([d for d in dates if d <= latest.isoformat()]) < n:
+                    dates.add(cursor.isoformat())
+                    cursor = cursor - timedelta(days=1)
+                    if cursor < latest - timedelta(days=30):
+                        break  # 防御：日历异常时最多回看 30 天
+        except Exception as e:
+            logger.debug(f"交易日历不可用，仅用库内日期: {e}")
+        return sorted(dates, reverse=True)[:n]
 
     async def _fetch_daily_indicators(self, provider, symbol: str, start: str, end: str):
         """获取每日指标：per-symbol 模式或按日期批量模式。"""

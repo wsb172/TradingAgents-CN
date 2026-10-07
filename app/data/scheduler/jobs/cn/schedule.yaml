@@ -53,6 +53,30 @@ money_flow:
   depends_on:
     - daily_quotes
 
+margin_trading:
+  cron: "30 17 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 17:30 按日批量同步两融数据"
+  depends_on:
+    - daily_quotes
+
+dragon_tiger:
+  cron: "0 18 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 18:00 同步龙虎榜（当日上榜全量）"
+  depends_on:
+    - daily_quotes
+
+block_trade:
+  cron: "30 18 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 18:30 同步大宗交易（当日全量）"
+  depends_on:
+    - daily_quotes
+
 factor_scores:
   cron: "15 20 * * 1-5"
   timezone: "Asia/Shanghai"

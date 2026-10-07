@@ -17,7 +17,7 @@ from app.data.sources.base.mappers import (
     map_network_exception,
     map_tushare_code,
 )
-from app.data.sources.tushare_common.caller import call_tushare
+from app.data.sources.tushare_common.caller import call_tushare, call_tushare_paged
 from app.utils.time_utils import now_config_tz, format_date_compact
 
 from .connection import TushareConnection
@@ -31,6 +31,13 @@ except ImportError:
 
 _DOMAIN = "daily_quotes"
 _SOURCE = "tushare"
+
+# daily 接口（未复权日线）按 trade_date 批量时的字段集：
+# 与 pro_bar qfq 输出对齐（除复权价外字段同名），adapter 按既有
+# adapt_daily_quotes 语义映射；amount 单位千元、vol 单位手。
+_DAILY_TRADE_DATE_FIELDS = (
+    "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
+)
 
 
 async def fetch_daily_quotes(
@@ -96,6 +103,27 @@ async def fetch_realtime_batch(conn: TushareConnection) -> Optional[pd.DataFrame
         _SOURCE,
         "realtime_quotes",
         ts_code="3*.SZ,6*.SH,0*.SZ,9*.BJ",
+    )
+
+
+async def fetch_daily_quotes_batch(
+    conn: TushareConnection, trade_date: str
+) -> Optional[pd.DataFrame]:
+    """按交易日一次拉全市场未复权日线（daily 接口，分页）。
+
+    与逐 symbol 的 pro_bar（复权价）互补：调度同步只需要原始 OHLCV，
+    复权由 adj_factors 消费侧计算。5572 次/symbol 调用 → 2 页调用，
+    在 500 次/分钟配额下从 11+ 分钟降到秒级。
+    """
+    date_str = str(trade_date).replace("-", "")
+    return await call_tushare_paged(
+        conn,
+        "daily",
+        _SOURCE,
+        _DOMAIN,
+        f"trade_date={trade_date}",
+        trade_date=date_str,
+        fields=_DAILY_TRADE_DATE_FIELDS,
     )
 
 

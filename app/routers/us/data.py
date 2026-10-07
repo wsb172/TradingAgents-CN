@@ -1,5 +1,4 @@
 """美股数据管理路由 — /api/us/data。"""
-# data-access-exempt: 熔断 reset 运维端点（Phase 2 遗留：单例对齐待修）
 
 import logging
 from typing import Dict, List, Optional
@@ -56,9 +55,8 @@ async def reset_circuit_breaker(
 ):
     """重置指定数据源的熔断器（需管理员权限）"""
     try:
-        from app.data.processor.circuit_breaker import CircuitBreaker
-        cb = CircuitBreaker()
-        cb.reset(source, domain)
+        di = DataInterface.get_instance()
+        await di.reset_source_circuit(_MARKET, source, domain)
         return ok(message=f"熔断器 {source}/{domain} 已重置")
     except Exception as e:
         return fail(message=f"重置失败: {e}", code=500)
@@ -163,8 +161,10 @@ async def get_stock_data(
     page_size: int = Query(20, ge=1, le=100),
     user: dict = Depends(get_current_user),
 ):
-    """查看单股多域数据"""
+    """查看单股多域数据（抽样校验：每域按最新记录优先分页）"""
     try:
+        from app.routers.cn.data_viewer import paginate_domain_items
+
         di = DataInterface.get_instance()
         domains = [domain] if domain else _all_domains()
 
@@ -174,15 +174,7 @@ async def get_stock_data(
                 read_result = await di.read(_MARKET, d, symbol=symbol,
                                             start_date=start_date, end_date=end_date)
                 data = read_result.get("data", [])
-                if isinstance(data, list):
-                    total = len(data)
-                    start = (page - 1) * page_size
-                    items = data[start:start + page_size]
-                else:
-                    total = 1
-                    items = [data] if data else []
-
-                result[d] = {"total": total, "items": items}
+                result[d] = paginate_domain_items(d, data, page, page_size)
             except Exception as exc:
                 result[d] = {"total": 0, "items": [], "error": str(exc)}
 

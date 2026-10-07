@@ -74,9 +74,10 @@ def get_full_symbol(symbol: str, market: str, exchange: str = "") -> str:
         return f"{code}.HK"
     elif market == "CN":
         code = str(symbol)
-        if exchange == "SSE" or code.startswith(("6", "68", "9")):
+        if exchange == "SSE" or code.startswith(("60", "68", "90")):
+            # 注意：900xxx 是沪 B，60/68 是沪 A 主板/科创板
             return f"{code}.SH"
-        elif exchange == "BSE" or code.startswith(("4", "8")):
+        elif exchange == "BSE" or code.startswith(("4", "8", "92")):
             return f"{code}.BJ"
         else:
             return f"{code}.SZ"

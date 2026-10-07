@@ -284,6 +284,26 @@ class DataInterface:
         monitor = SourceHealthMonitor()
         return monitor.get_all_health(market)
 
+    async def reset_source_circuit(self, market: str, source: str, domain: str) -> None:
+        """运维重置指定源的熔断器（消费层路由的合法入口）。
+
+        含三件事：重置 FallbackRouter 进程级单例里的熔断状态、同步内存
+        health 条目（防 30s flush 用旧值覆盖）、把 Mongo health 快照置
+        closed（进程刚重启内存无条目时，Mongo 是前端唯一可见状态）。
+        """
+        from app.data.processor.fallback_router import FallbackRouter
+
+        router = FallbackRouter.get_instance()
+        router._circuit.reset(source, domain=domain, market=market)
+
+        from app.data.monitoring.source_health import SourceHealthMonitor
+
+        SourceHealthMonitor().mark_circuit_closed(market, source, domain)
+
+        await self._metadata_repo.upsert_health(
+            market, source, domain, {"circuit_state": "closed"}
+        )
+
     def get_capability_registry(self) -> CapabilityRegistry:
         """获取能力注册表。"""
         return self._registry

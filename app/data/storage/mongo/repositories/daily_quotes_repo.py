@@ -42,6 +42,8 @@ class DailyQuotesRepo:
         query = {"symbol": symbol, "trade_date": {"$gte": start_date, "$lte": end_date}}
         if period:
             query["period"] = period
+        # 升序（时间自然序）：K线取尾部最新、周期聚合等消费方依赖此序，
+        # 展示层的"最新优先"由查看器路由统一处理。
         cursor = coll.find(query, {"_id": 0}).sort("trade_date", 1)
         return await cursor.to_list(length=None)
 

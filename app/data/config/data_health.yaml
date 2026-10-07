@@ -30,6 +30,9 @@ coverage_exempt_domains:
   - news
   - dragon_tiger
   - block_trade
+  - financial_data       # 批量源（东财/tushare period）按报告期拉全市场快照，
+                         # 含北交所与三板/两网退市股，与 basic_info 上市股票池
+                         # 口径天然不一致，覆盖率恒 >100%，无判定意义
 
 markets:
   HK:

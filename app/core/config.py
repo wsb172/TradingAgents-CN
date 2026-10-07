@@ -365,6 +365,12 @@ class Settings(BaseSettings):
     HK_SYNC_CONCURRENCY: int = Field(default=8, ge=1, le=32, description="HK 数据同步并发上限")
     US_SYNC_CONCURRENCY: int = Field(default=8, ge=1, le=32, description="US 数据同步并发上限")
 
+    # ==================== 数据新鲜度巡检（catchup 兜底）====================
+    # cron misfire 过期即丢弃；巡检每 N 分钟评估各域检查点是否落后于
+    # 「收盘后应有的最新交易日」，落后即自动补数（幂等增量）
+    DATA_FRESHNESS_PATROL_ENABLED: bool = Field(default=True, description="启用数据新鲜度巡检自动补数")
+    DATA_FRESHNESS_PATROL_MINUTES: int = Field(default=30, ge=5, le=1440, description="新鲜度巡检周期（分钟）")
+
     # ==================== 港股全量同步配置 ====================
     # 默认关闭，用户通过 .env 手动启用
     HK_UNIFIED_ENABLED: bool = Field(default=False, description="启用港股统一数据同步")

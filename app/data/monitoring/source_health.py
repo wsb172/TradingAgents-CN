@@ -110,6 +110,20 @@ class SourceHealthMonitor:
             while events and events[0][0] < cutoff:
                 events.popleft()
 
+    def mark_circuit_closed(self, market: str, source: str, domain: str) -> None:
+        """运维重置熔断后的内存标记同步。
+
+        单独存在的意义：reset 端点重置的 (market, source, domain) 可能
+        在内存 _stats 中不存在（如进程刚重启），此时 get_health 返回
+        None 属正常——调用方应直接更新 Mongo 快照，不必依赖内存。
+        本方法只负责已存在条目的 circuit_state 字段纠正，防止后续
+        30s flush 线程用内存里的旧 open 值覆盖运维重置结果。
+        """
+        key = f"{market}:{source}:{domain}"
+        with self._stats_lock:
+            if key in self._stats:
+                self._stats[key]["circuit_state"] = "closed"
+
     def get_health(self, market: str, source: str, domain: str) -> Optional[Dict]:
         """获取健康度数据。"""
         key = f"{market}:{source}:{domain}"

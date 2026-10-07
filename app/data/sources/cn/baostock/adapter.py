@@ -24,9 +24,9 @@ from app.data.sources.cn.stock_name_utils import infer_exchange as _infer_exchan
 def _to_bs_code(symbol: str) -> str:
     """标准代码 → BaoStock 代码（带交易所前缀）。"""
     code = str(symbol).zfill(6)
-    if code.startswith(("6", "9")):
+    if code.startswith(("60", "68", "90")):
         return f"sh{code}"
-    if code.startswith(("4", "8")):
+    if code.startswith(("4", "8", "92")):
         logger.warning(f"北交所股票 {code} 不被 BaoStock 支持")
         return ""
     return f"sz{code}"

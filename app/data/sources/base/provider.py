@@ -57,6 +57,18 @@ class BaseProvider(ABC):
         """
         raise NotImplementedError(f"{self.name} 不支持 get_daily_quotes")
 
+    async def get_daily_quotes_batch(self, trade_date: str, **kwargs) -> pd.DataFrame:
+        """获取日线行情（按日期批量模式，一次获取全市场）。
+
+        供调度全量同步使用：把逐 symbol 调用（数千次配额消耗）收敛为
+        按交易日的少量分页调用。不支持批量模式的源不覆写即可（路由
+        通过基类比较判定 _BATCH_NOT_SUPPORTED）。
+
+        Raises:
+            NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
+        """
+        raise NotImplementedError(f"{self.name} 不支持 get_daily_quotes_batch")
+
     async def get_daily_indicators(self, symbol: str, start_date: str, end_date: str, **kwargs) -> pd.DataFrame:
         """获取每日指标（per-symbol 模式）。
 

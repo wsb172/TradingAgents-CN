@@ -53,9 +53,9 @@ def _tencent_name_sync(symbol: str) -> Optional[str]:
 
     import requests as req
 
-    if symbol.startswith(("6", "9")):
+    if symbol.startswith(("60", "68", "90")):
         code = f"sh{symbol}"
-    elif symbol.startswith(("4", "8")):
+    elif symbol.startswith(("4", "8", "92")):
         code = f"bj{symbol}"
     else:
         code = f"sz{symbol}"
@@ -86,7 +86,8 @@ def infer_exchange(symbol: str) -> str:
         return "SSE"
     elif symbol.startswith(("00", "30", "20")):
         return "SZSE"
-    elif symbol.startswith(("4", "8")):
+    elif symbol.startswith(("4", "8", "92")):
+        # 北交所含 2024-11 启用的 920 段（与 .SH 的 900 段 B 股区分）
         return "BSE"
     return ""
 

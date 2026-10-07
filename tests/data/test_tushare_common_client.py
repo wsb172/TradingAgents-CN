@@ -212,6 +212,7 @@ class TestResolveApiAgainstDataApiMagic:
     """
 
     def test_bare_data_api_passthrough(self):
+        pytest.importorskip("tushare", reason="宿主机未装 tushare（容器内必装；跳过不视为失败）")
         from tushare.pro.client import DataApi
 
         from app.data.sources.tushare_common.caller import _resolve_api

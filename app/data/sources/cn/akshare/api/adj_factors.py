@@ -25,7 +25,7 @@ def _to_sina_symbol(symbol: str) -> str:
         return f"sh{code}"
     elif code.startswith(("0", "3", "20")):
         return f"sz{code}"
-    elif code.startswith(("4", "8")):
+    elif code.startswith(("4", "8", "92")):
         return f"bj{code}"
     return f"sh{code}"
 

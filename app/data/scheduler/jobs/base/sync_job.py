@@ -217,9 +217,9 @@ class BaseSyncJob(ABC):
         """是否需要逐符号同步。
 
         basic_info 和 trade_calendar 是全量同步。
-        daily_indicators / financial_data / money_flow 使用批量模式
-        （按日期/报告期参数一次获取全市场——逐 symbol 对全市场在限流下
-        不可行，fallback_router 的 _fetch_*_batch 负责选择批量分支）。
+        daily_quotes / daily_indicators / financial_data / money_flow 使用
+        批量模式（按日期/报告期参数一次获取全市场——逐 symbol 对全市场在
+        限流下不可行，fallback_router 的 _fetch_*_batch 负责选择批量分支）。
         market_quotes 使用批量快照模式。
         dragon_tiger / block_trade 按日期全量获取。
         news 使用市场级抓取（全市场财经快讯，不依赖逐 symbol）。
@@ -228,6 +228,7 @@ class BaseSyncJob(ABC):
             DataDomain.BASIC_INFO.value,
             DataDomain.TRADE_CALENDAR.value,
             DataDomain.MARKET_QUOTES.value,
+            DataDomain.DAILY_QUOTES.value,
             DataDomain.DAILY_INDICATORS.value,
             DataDomain.FINANCIAL_DATA.value,
             DataDomain.MONEY_FLOW.value,

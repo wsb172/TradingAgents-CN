@@ -492,10 +492,47 @@ class Reader:
                 return FreshnessState.FRESH if age_seconds < threshold_sec else FreshnessState.STALE
 
             elif rule_type == "trading_day_after_close":
-                # 简化: 检查数据是否有当天日期
+                # 交易日语义判定：数据只要「覆盖到最近一个已收盘交易日」即 fresh。
+                # 旧实现用 age < threshold_minutes 判定——周五收盘的数据周一必判
+                # stale（跨周末 age 远超 30 分钟），语义错误。
+                # 新实现：以记录的业务日期（trade_date 等）对照最近交易日；
+                # 无业务日期字段时回退到「收盘后阈值 + 自然日预算」宽松判定，
+                # 避免周末/节假日误报 stale。
                 threshold_minutes = domain_rule.get("threshold_minutes", 60)
+                record_date = None
+                if isinstance(data, dict):
+                    record_date = data.get("trade_date") or data.get("cal_date")
+                elif isinstance(data, list) and data:
+                    for d in reversed(data):
+                        if isinstance(d, dict) and d.get("trade_date"):
+                            record_date = d.get("trade_date")
+                            break
+                if record_date:
+                    try:
+                        from app.data.core.market import get_latest_trade_day
+
+                        latest_td = await get_latest_trade_day(market)
+                        if latest_td is not None:
+                            # 记录业务日期 >= 最近交易日 → fresh（含今天已入库）
+                            rec_d = str(record_date)[:10].replace("/", "-")
+                            return (
+                                FreshnessState.FRESH
+                                if rec_d >= latest_td.isoformat()
+                                else FreshnessState.STALE
+                            )
+                    except Exception:
+                        pass  # 日历不可用时走下方时间兜底
+                # 时间兜底：age 在阈值内 → fresh；超过阈值但未跨自然日预算
+                # （收盘后数据跨周末属正常，72h 预算对齐 data_health 语义）
                 age_minutes = (now - updated).total_seconds() / 60
-                return FreshnessState.FRESH if age_minutes < threshold_minutes else FreshnessState.STALE
+                if age_minutes < threshold_minutes:
+                    return FreshnessState.FRESH
+                max_hours = domain_rule.get("max_stale_hours", 72)
+                return (
+                    FreshnessState.FRESH
+                    if age_minutes < max_hours * 60
+                    else FreshnessState.STALE
+                )
 
         except (ValueError, TypeError, AttributeError):
             return FreshnessState.UNKNOWN
