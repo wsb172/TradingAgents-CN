@@ -22,6 +22,10 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:-tradingagents123}
       MONGO_INITDB_DATABASE: tradingagents
       TZ: "Asia/Shanghai"
+    # WiredTiger 缓存默认取宿主内存 50%（本机 3.39GB），开发环境全市场行情
+    # 数据约 7.5GB，缓存全量热数据导致 cgroup 计费 5GB+。压到 1GB：
+    # 换来可预测的容器内存上限，代价是重查询多读磁盘（SSD 下可接受）。
+    command: ["mongod", "--wiredTigerCacheSizeGB", "1.0"]
     ports:
       - "127.0.0.1:27017:27017"
     networks:
@@ -32,6 +36,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
 
   redis:
     image: docker.m.daocloud.io/library/redis:7-alpine
@@ -42,7 +50,8 @@ services:
     environment:
       TZ: "Asia/Shanghai"
       REDISCLI_AUTH: ${REDIS_PASSWORD:-tradingagents123}
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-tradingagents123}
+    # maxmemory 256MB + LRU：缓存场景无需更大；防无上限增长
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-tradingagents123} --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "127.0.0.1:6379:6379"
     networks:
