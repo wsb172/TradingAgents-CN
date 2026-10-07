@@ -83,7 +83,7 @@
         </div>
       </div>
 
-      <el-table :data="filteredList" v-loading="loading" style="width: 100%" @selection-change="onSelectionChange">
+      <el-table :data="filteredList" v-loading="loading" style="width: 100%" class="hidden-sm-and-down" @selection-change="onSelectionChange">
         <el-table-column type="selection" width="50" />
         <el-table-column prop="task_id" label="任务ID" width="220" />
         <el-table-column prop="stock_code" label="股票代码" width="120" />
@@ -115,6 +115,30 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 移动端卡片列表（与上表同数据同操作） -->
+      <MobileTable
+        v-model:selection="mobileSelection"
+        class="hidden-md-and-up"
+        :rows="filteredList"
+        :columns="mobileColumns"
+        row-key="task_id"
+        head-prop="stock_code"
+        head-right-prop="status"
+        clickable
+        @row-click="(row: any) => openTaskDetail(row)"
+      >
+        <template #headRight="{ row }">
+          <el-tag :type="getStatusType(row.status)" size="small">{{ getStatusText(row.status) }}</el-tag>
+        </template>
+        <template #actions="{ row }">
+          <el-button link size="small" type="primary" @click="openTaskDetail(row)">详情</el-button>
+          <el-button v-if="row.status==='completed'" link size="small" @click="openResult(row)">结果</el-button>
+          <el-button v-if="row.status==='completed'" link size="small" @click="openReport(row)">报告</el-button>
+          <el-button v-if="row.status==='failed'" link size="small" @click="retryTask(row)">重试</el-button>
+          <el-button link size="small" style="color: #E57373;" @click="deleteTask(row)">删除</el-button>
+        </template>
+      </MobileTable>
 
       <div class="pagination-wrapper">
         <el-pagination
@@ -148,6 +172,8 @@ import { List, Refresh, Download } from '@element-plus/icons-vue'
 import { analysisApi, type AnalysisTask } from '@/api/analysis'
 import { marked } from 'marked'
 import TaskResultDialog from '@/components/Global/TaskResultDialog.vue'
+import MobileTable from '@/components/Global/MobileTable.vue'
+import { formatDateTime } from '@/utils/datetime'
 
 
 marked.setOptions({ breaks: true, gfm: true })
@@ -163,6 +189,23 @@ const pageSize = ref(20)
 const total = ref(0)
 const list = ref<AnalysisTask[]>([])
 const selectedRows = ref<AnalysisTask[]>([])
+// 移动端卡片列表的选中集（与桌面表格 selection 对应，导出用）
+const mobileSelection = ref<any[]>([])
+// 移动卡片列定义（与桌面表格列对应；task_id 进副标题行避免占宽）
+const mobileColumns = [
+  { prop: 'task_id', label: '任务ID' },
+  { prop: 'stock_code', label: '代码', skip: true },
+  { prop: 'stock_name', label: '名称' },
+  { prop: 'status', label: '状态', skip: true },
+  {
+    prop: 'progress', label: '进度',
+    formatter: (row: any) => `${Number(row.progress ?? 0)}%`
+  },
+  {
+    prop: 'start_time', label: '开始时间',
+    formatter: (row: any) => formatTime(String(row.start_time || row.created_at || ''))
+  }
+]
 // 筛选与统计
 const filters = ref<{ dateRange: string[]; market: string; status: string; stock: string }>({
   dateRange: [], market: '', status: '', stock: ''
@@ -552,7 +595,6 @@ const getStatusType = (status:string): 'success' | 'info' | 'warning' | 'danger'
   }
   return map[status] || 'info'
 }
-import { formatDateTime } from '@/utils/datetime'
 
 const getStatusText = (status: string): string => {
   const map: Record<string, string> = {
@@ -561,6 +603,8 @@ const getStatusText = (status: string): string => {
   return map[status] || status
 }
 const formatTime = (t:string) => t ? formatDateTime(t) : '-'
+
+
 </script>
 
 <style scoped lang="scss">

@@ -15,6 +15,10 @@
       <el-container class="chat-main">
         <header class="chat-header">
           <div class="chat-header-title">
+            <!-- 移动端：会话列表入口 -->
+            <el-button v-if="isMobile" link class="session-toggle" @click="sessionDrawer = true" aria-label="会话列表">
+              <el-icon :size="18"><Menu /></el-icon>
+            </el-button>
             <el-icon><ChatDotRound /></el-icon>
             <span>AI 选股助手</span>
           </div>
@@ -45,13 +49,32 @@
         />
       </el-container>
     </el-container>
+
+    <!-- 移动端会话抽屉 -->
+    <el-drawer
+      v-if="isMobile"
+      v-model="sessionDrawer"
+      direction="ltr"
+      size="80vw"
+      :with-header="false"
+    >
+      <SessionSidebar
+        :sessions="store.sessions"
+        :current-session-id="store.currentSessionId"
+        :creating="creating"
+        @create="creating = false; sessionDrawer = false"
+        @select="sessionDrawer = false"
+        @remove="() => {}"
+      />
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound } from '@element-plus/icons-vue'
+import { ChatDotRound, Menu } from '@element-plus/icons-vue'
+import { useWindowSize } from '@vueuse/core'
 import { useChatProcessStore } from '@/stores/chatProcess'
 import SessionSidebar from './components/SessionSidebar.vue'
 import MessageList from './components/MessageList.vue'
@@ -61,6 +84,9 @@ defineOptions({ name: 'AiChat' })
 
 const store = useChatProcessStore()
 const creating = ref(false)
+const sessionDrawer = ref(false)
+const { width } = useWindowSize()
+const isMobile = computed(() => width.value < 768)
 
 onMounted(async () => {
   try {
@@ -159,6 +185,11 @@ async function handleSend(content: string) {
   gap: 6px;
   font-size: 15px;
   font-weight: 600;
+
+  .session-toggle {
+    padding: 8px;
+    margin-right: 2px;
+  }
 }
 
 .chat-header-meta {

@@ -262,6 +262,7 @@
         @selection-change="handleSelectionChange"
         stripe
         style="width: 100%"
+        class="hidden-sm-and-down"
       >
         <el-table-column type="selection" width="55" />
 
@@ -350,6 +351,32 @@
         </el-table-column>
       </el-table>
 
+      <!-- 移动端卡片列表 -->
+      <MobileTable
+        class="hidden-md-and-up"
+        :rows="paginatedResults"
+        :columns="mobileColumns"
+        row-key="symbol"
+        head-prop="symbol"
+        head-right-prop="pct_chg"
+      >
+        <template #head="{ row }">
+          <el-link type="primary" @click.stop="viewStockDetail(row)">{{ row.symbol || row.code }}</el-link>
+        </template>
+        <template #headRight="{ row }">
+          <span v-if="row.pct_chg !== null && row.pct_chg !== undefined" :class="getChangeClass(row.pct_chg)">
+            {{ row.pct_chg > 0 ? '+' : '' }}{{ row.pct_chg?.toFixed(2) }}%
+          </span>
+          <span v-else>-</span>
+        </template>
+        <template #actions="{ row }">
+          <el-button link size="small" @click="analyzeSingle(row)">分析</el-button>
+          <el-button link size="small" @click="toggleFavorite(row)">
+            {{ isFavorited(row.symbol || row.code) ? '取消自选' : '加入自选' }}
+          </el-button>
+        </template>
+      </MobileTable>
+
       <!-- 分页 -->
       <div class="pagination-wrapper">
         <el-pagination
@@ -394,6 +421,7 @@ import { getSourceConfig } from '@/api/marketData'
 import { normalizeMarketForAnalysis, exchangeCodeToMarket, getMarketByStockCode } from '@/utils/market'
 import StrategyTab from './StrategyTab.vue'
 import DailyTab from './DailyTab.vue'
+import MobileTable from '@/components/Global/MobileTable.vue'
 
 // 三 Tab 状态：默认落在今日推荐（AI），策略选股/自定义条件按需进入
 const activeTab = ref('daily')
@@ -447,6 +475,20 @@ const paginatedResults = computed(() => {
   const end = start + pageSize.value
   return screeningResults.value.slice(start, end)
 })
+
+// 移动端卡片列定义（与桌面表格对应；代码/涨跌幅在卡片头展示）
+const mobileColumns = [
+  { prop: 'symbol', label: '代码', skip: true },
+  { prop: 'name', label: '名称' },
+  { prop: 'pct_chg', label: '涨跌幅', skip: true },
+  { prop: 'industry', label: '行业' },
+  { prop: 'close', label: '价格', formatter: (r: any) => r.close ? `¥${Number(r.close).toFixed(2)}` : '-' },
+  { prop: 'total_mv', label: '市值', formatter: (r: any) => formatMarketCap(r.total_mv as number) },
+  { prop: 'pe', label: '市盈率', formatter: (r: any) => r.pe ? Number(r.pe).toFixed(2) : '-' },
+  { prop: 'pb', label: '市净率', formatter: (r: any) => r.pb ? Number(r.pb).toFixed(2) : '-' },
+  { prop: 'roe', label: 'ROE', formatter: (r: any) => r.roe !== null && r.roe !== undefined ? `${Number(r.roe).toFixed(2)}%` : '-' },
+  { prop: 'board', label: '板块', formatter: (r: any) => String(r.board || '-') }
+]
 
 // 方法
 const performScreening = async () => {

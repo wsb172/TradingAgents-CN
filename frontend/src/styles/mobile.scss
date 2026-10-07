@@ -1,11 +1,81 @@
 /**
- * 移动端全局响应式补丁
- * 断点：768px（与 BasicLayout 的 isMobile 判断一致）
- * 原则：不动 PC 端任何样式；移动端只做"可用性"适配——
- *   多栏堆叠、表格可横滑、弹窗全屏化、表单纵向、触控目标放大
+ * 移动端全局响应式样式
+ *
+ * 设计原则（参考 Material Design 3 / Apple HIG / impeccable adapt.md 行业标准）：
+ * 1. 断点 768px 与 BasicLayout 的 isMobile 判断一致；480px 为小屏收紧档
+ * 2. 布局策略不是"全部 100% 堆叠"——xs=12 栅格保持 2 列（统计卡等浅信息密度场景），
+ *    只有 md/lg 多栏才降为单列（内容主体）
+ * 3. 触控目标 ≥44px：按钮/输入框/开关/菜单项加大命中区
+ * 4. 表格默认横向滚动兜底；深度页面用 MobileTable 组件做卡片化
+ * 5. 底部导航占位（68px + safe-area）由 BasicLayout 的 main-content padding 提供
  */
 
+/* ── 基础：视口与安全区 ─────────────────────── */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ── 响应式显隐工具类（替代 element-plus/theme-chalk/display.css，
+      按需自动导入模式下该文件不会被包含）──────── */
 @media (max-width: 768px) {
+  .hidden-sm-and-down {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .hidden-md-and-up {
+    display: none !important;
+  }
+}
+
+/* ── 断点 768px ─────────────────────────────── */
+@media (max-width: 768px) {
+  /* 全局触控目标：按钮最小高度 40px（icon-only 44px） */
+  .el-button {
+    min-height: 36px;
+
+    &.is-link,
+    &.is-text {
+      min-height: 40px;
+      padding: 6px 10px;
+    }
+
+    &.el-button--small {
+      min-height: 34px;
+    }
+  }
+
+  /* 输入控件：高度与字号（16px 防 iOS 聚焦缩放） */
+  .el-input__inner,
+  .el-textarea__inner {
+    font-size: 16px;
+  }
+
+  .el-select .el-input__inner {
+    min-height: 40px;
+  }
+
+  /* 开关/复选：触控放大 */
+  .el-switch {
+    height: 28px;
+
+    .el-switch__core {
+      min-width: 48px;
+      height: 28px;
+
+      &::after {
+        width: 24px;
+        height: 24px;
+      }
+    }
+  }
+
+  .el-checkbox,
+  .el-radio {
+    min-height: 40px;
+  }
+
   /* ── 页面容器 ───────────────────────────── */
   .page-container,
   .view-container,
@@ -25,6 +95,18 @@
     font-size: 13px !important;
   }
 
+  /* 页头 + 操作按钮：标题一行、按钮换行铺满 */
+  .page-header,
+  .list-header,
+  .filter-header {
+    flex-wrap: wrap;
+    gap: 10px;
+
+    > .el-button {
+      margin-left: 0 !important;
+    }
+  }
+
   /* ── Element Plus 弹窗：移动端近全屏 ────── */
   .el-dialog {
     width: 94vw !important;
@@ -32,7 +114,7 @@
     margin: 3vh auto !important;
 
     .el-dialog__body {
-      max-height: 70vh;
+      max-height: 68vh;
       overflow-y: auto;
       padding: 16px !important;
     }
@@ -47,7 +129,7 @@
     --el-drawer-size: 88vw !important;
   }
 
-  /* ── 表格：横向可滑动，不被挤压变形 ────── */
+  /* ── 表格：默认横向可滑兜底 ─────────────── */
   .el-table {
     font-size: 12px;
 
@@ -60,6 +142,7 @@
     .el-card__header {
       padding: 12px 14px !important;
     }
+
     .el-card__body {
       padding: 14px !important;
     }
@@ -98,6 +181,7 @@
       width: auto !important;
       padding-bottom: 4px;
     }
+
     .el-form-item__content {
       margin-left: 0 !important;
     }
@@ -106,6 +190,16 @@
   /* ── 按钮组：允许换行 ───────────────────── */
   .el-button + .el-button {
     margin-left: 8px;
+  }
+
+  /* 通用按钮容器（含股票详情头部等局部类名）也允许换行 */
+  .actions {
+    flex-wrap: wrap !important;
+    row-gap: 8px;
+
+    .el-button {
+      margin-left: 0 !important;
+    }
   }
 
   .header-actions,
@@ -121,7 +215,13 @@
     }
   }
 
-  /* ── 栅格：移动端全部堆叠为单列 ─────────── */
+  /* ── 栅格策略（修正版）───────────────────────
+   * 只压 md/lg/sm 断点为单列（内容主体栏），保留 xs 双列能力：
+   * - el-col-md-* / el-col-lg-* / el-col-xl-*：桌面主布局 → 100% 单列
+   * - el-col-sm-*：平板双栏 → 单列（768 以下无并排空间）
+   * - el-col-xs-*：作者显式声明的移动端布局 → 尊重原值
+   * - 裸 el-col-N（span 写死且无任何响应式类）：→ 100% 单列
+   */
   .el-row {
     margin-left: 0 !important;
     margin-right: 0 !important;
@@ -131,15 +231,23 @@
     margin-bottom: 12px;
   }
 
-  /* 常见的桌面栅格在移动端强制全宽（span 24） */
-  .el-col-xs-0 {
-    display: block !important;
-  }
-
-  // Element Plus 按需加载的 el-col chunk 会在页面 chunk 后注入，
-  // 同特异度下覆盖全局规则——必须 !important（R: 单股分析页双栏挤压事故）
   @for $i from 1 through 24 {
-    .el-col-#{$i} {
+    /* md/lg/xl 压满，但显式声明了 xs 的列尊重作者的移动断点 */
+    .el-col-md-#{$i}:not([class*='el-col-xs']),
+    .el-col-lg-#{$i}:not([class*='el-col-xs']),
+    .el-col-xl-#{$i}:not([class*='el-col-xs']) {
+      max-width: 100% !important;
+      flex: 0 0 100% !important;
+    }
+
+    /* sm 双栏压单列，但尊重显式 xs 声明（xs 是作者给移动端的断点） */
+    .el-col-sm-#{$i}:not([class*='el-col-xs']) {
+      max-width: 100% !important;
+      flex: 0 0 100% !important;
+    }
+
+    /* 裸 span（无任何响应式类的列）才压满：写死 span 的桌面布局 */
+    .el-col-#{$i}:not([class*='el-col-xs']):not([class*='el-col-sm']):not([class*='el-col-md']):not([class*='el-col-lg']) {
       max-width: 100% !important;
       flex: 0 0 100% !important;
     }
@@ -178,10 +286,10 @@
     font-size: 12px;
   }
 
-  /* ── 回到顶部按钮位置 ───────────────────── */
+  /* ── 回到顶部按钮避开底部导航 ─────────────── */
   .el-backtop {
     right: 16px !important;
-    bottom: 16px !important;
+    bottom: calc(76px + env(safe-area-inset-bottom)) !important;
   }
 
   /* ── 分页：允许换行紧凑 ──────────────────── */
@@ -195,9 +303,29 @@
       margin-left: 0 !important;
     }
   }
+
+  /* ── 消息/通知：不遮底部导航 ─────────────── */
+  .el-message {
+    max-width: calc(100vw - 32px);
+  }
+
+  /* ── AI 聊天：会话侧栏移入抽屉（页面脚本控制），消息区全宽 ── */
+  .chat-aside {
+    display: none !important;
+  }
+
+  .chat-header {
+    flex-wrap: wrap !important;
+    gap: 6px;
+  }
+
+  .chat-header-meta {
+    flex-wrap: wrap !important;
+    gap: 6px;
+  }
 }
 
-/* 小屏（≤480px）进一步收紧 */
+/* ── 小屏（≤480px）进一步收紧 ────────────────── */
 @media (max-width: 480px) {
   .page-title {
     font-size: 16px !important;

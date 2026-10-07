@@ -106,6 +106,7 @@
         :data="filteredFavorites"
         v-loading="loading"
         style="width: 100%"
+        class="hidden-sm-and-down"
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="55" />
@@ -211,6 +212,39 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 移动端卡片列表 -->
+      <MobileTable
+        v-model:selection="mobileSelection"
+        class="hidden-md-and-up"
+        :rows="filteredFavorites"
+        :columns="mobileColumns"
+        row-key="stock_code"
+        head-prop="stock_code"
+        head-right-prop="change_percent"
+      >
+        <template #head="{ row }">
+          <el-link type="primary" @click.stop="viewStockDetail(row)">{{ row.stock_code }}</el-link>
+        </template>
+        <template #headRight="{ row }">
+          <span v-if="row.change_percent !== null && row.change_percent !== undefined" :class="getChangeClass(row.change_percent)">
+            {{ formatPercent(row.change_percent) }}
+          </span>
+          <span v-else>-</span>
+        </template>
+        <template #tags="{ row }">
+          <span v-if="row.tags?.length">
+            <el-tag v-for="tag in row.tags" :key="tag" size="small" :color="getTagColor(tag)" effect="dark" style="margin-right: 4px;">{{ tag }}</el-tag>
+          </span>
+          <span v-else>-</span>
+        </template>
+        <template #actions="{ row }">
+          <el-button link size="small" @click="editFavorite(row)">编辑</el-button>
+          <el-button v-if="row.market === 'A股'" link size="small" style="color: var(--el-color-primary);" @click="showSingleSyncDialog(row)">同步</el-button>
+          <el-button link size="small" @click="analyzeFavorite(row)">分析</el-button>
+          <el-button link size="small" style="color: #E57373;" @click="removeFavorite(row)">移除</el-button>
+        </template>
+      </MobileTable>
 
       <!-- 空状态 -->
       <div v-if="!loading && favorites.length === 0" class="empty-state">
@@ -518,6 +552,7 @@ import { normalizeMarketForAnalysis } from '@/utils/market'
 
 import type { FavoriteItem } from '@/api/favorites'
 import { useAuthStore } from '@/stores/auth'
+import MobileTable from '@/components/Global/MobileTable.vue'
 
 const favoritesStore = useFavoritesStore()
 
@@ -534,6 +569,19 @@ const router = useRouter()
 
 // 响应式数据
 const loading = ref(false)
+// 移动端卡片列表选中集
+const mobileSelection = ref<any[]>([])
+// 移动卡片列定义（价格作为标题右侧强调值展示）
+const mobileColumns = [
+  { prop: 'stock_code', label: '代码', skip: true },
+  { prop: 'stock_name', label: '名称' },
+  { prop: 'current_price', label: '价格', skip: true },
+  { prop: 'change_percent', label: '涨跌幅', skip: true },
+  { prop: 'market', label: '市场', formatter: (r: any) => String(r.market || 'A股') },
+  { prop: 'board', label: '板块', formatter: (r: any) => String(r.board || '-') },
+  { prop: 'tags', label: '标签', slot: 'tags' },
+  { prop: 'added_at', label: '添加时间', formatter: (r: any) => formatDate(r.added_at as string) }
+]
 const favorites = ref<FavoriteItem[]>([])
 const userTags = ref<string[]>([])
 const tagColorMap = ref<Record<string, string>>({})
@@ -660,7 +708,6 @@ const filteredFavorites = computed<FavoriteItem[]>(() => {
       item.market === selectedMarket.value
     )
   }
-
   // 板块筛选
   if (selectedBoard.value) {
     result = result.filter((item: FavoriteItem) =>
@@ -1188,7 +1235,7 @@ const formatPercent = (value: any): string => {
 }
 
 const formatDate = (dateStr: string) => {
-  return new Date(dateStr).toLocaleDateString('zh-CN')
+  return dateStr ? new Date(dateStr).toLocaleDateString('zh-CN') : '-'
 }
 
 // 生命周期

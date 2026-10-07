@@ -76,18 +76,23 @@
     </div>
 
     <!-- 回到顶部 -->
-    <el-backtop :right="40" :bottom="40" />
+    <el-backtop :right="40" :bottom="isMobile ? 80 : 40" />
+
+    <!-- 移动端底部导航 -->
+    <MobileTabbar />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useWindowSize } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import SidebarMenu from '@/components/Layout/SidebarMenu.vue'
 import UserProfile from '@/components/Layout/UserProfile.vue'
 import Breadcrumb from '@/components/Layout/Breadcrumb.vue'
 import HeaderActions from '@/components/Layout/HeaderActions.vue'
 import AppFooter from '@/components/Layout/AppFooter.vue'
+import MobileTabbar from '@/components/Layout/MobileTabbar.vue'
 import { Expand, Fold } from '@element-plus/icons-vue'
 
 const appStore = useAppStore()
@@ -257,9 +262,11 @@ watch(() => route.fullPath, () => {
 @media (max-width: 768px) {
   .sidebar {
     transform: translateX(-100%);
-    
+
     &:not(.collapsed) {
       transform: translateX(0);
+      // 抽屉模式展开为全宽菜单（collapsed 的 64px 仅图标态在移动端不可用）
+      width: 240px !important;
     }
   }
 
@@ -268,11 +275,20 @@ watch(() => route.fullPath, () => {
   }
 
   .main-content {
-    padding: 16px;
+    padding: 12px 12px calc(68px + env(safe-area-inset-bottom)) 12px;
   }
 
   .header {
-    padding: 0 16px;
+    padding: 0 12px;
+
+    .header-left {
+      gap: 8px;
+    }
+  }
+
+  // 底部导航存在时页脚收窄，避免双底栏叠占
+  .footer {
+    height: 48px;
   }
 }
 
