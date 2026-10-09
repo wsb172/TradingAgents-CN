@@ -364,6 +364,21 @@ async def run_conversation(
                     ))
                 )
                 continue
+            # 未提交收尾闸：模型准备结束、但整个会话从未调用提交工具 → 再要一轮（仅一次）。
+            # 提前退出时「轮数将尽催促」不会触发，不补这一轮的话报告会退化成最后一段
+            # 正文（实测：市场技术分析师 8 轮后交出 135 字符空壳）。小额预算（<3 轮）
+            # 没有回旋余地，不启用，避免挤占首轮工作。
+            if (
+                not submit_gate_nudged
+                and max_turns >= 3
+                and not any(_is_submit_tool(n) for n in executed_tool_names)
+            ):
+                submit_gate_nudged = True
+                logger.warning(
+                    "⏰ [runner] 模型准备结束但未调用提交工具，注入强制提交请求"
+                )
+                messages.append(Message(role=Role.USER, content=SUBMIT_REQUIRED_INSTRUCTION))
+                continue
             result.final_text = resp.text()
             result.stop_reason = resp.stop_reason.value
             break
@@ -373,6 +388,7 @@ async def run_conversation(
             reg, tool_uses, safe_map, extra_defs=extra_defs, emit=emit, task_id=task_id
         )
         result.tool_calls_executed += len(tool_uses)
+        executed_tool_names.update(str(getattr(tu, "name", "")) for tu in tool_uses)
         result_blocks = [
             ToolResultBlock(
                 tool_use_id=tu.id,
